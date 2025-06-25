@@ -1,0 +1,346 @@
+# OpenWrt编译器 - 修复编码问题的Docker镜像
+FROM ubuntu:22.04
+
+# 设置环境变量 - 重点解决编码问题
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
+ENV LC_CTYPE=zh_CN.UTF-8
+ENV PYTHONIOENCODING=utf-8
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=5000
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装locale和字符编码支持
+RUN apt-get update && apt-get install -y \
+    locales \
+    language-pack-zh-hans \
+    && locale-gen zh_CN.UTF-8 \
+    && update-locale LANG=zh_CN.UTF-8 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 设置时区
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    # Python环境
+    python3 python3-pip python3-venv python3-dev python3-setuptools python3-wheel \
+    # 基础工具
+    curl wget git unzip vim nano htop tree \
+    # 网络工具
+    iputils-ping netcat-openbsd \
+    # 编译工具
+    build-essential gcc g++ make cmake \
+    # OpenWrt编译依赖
+    libncurses5-dev libncursesw5-dev zlib1g-dev gawk gettext libssl-dev \
+    xsltproc rsync subversion mercurial bzr ecj fastjar file \
+    java-propose-classpath libelf-dev python3-distutils \
+    swig aria2 libtinfo5 libgmp3-dev libmpc-dev libmpfr-dev \
+    libusb-1.0-0-dev libusb-dev liblzma-dev libsnmp-dev libevent-dev \
+    libavahi-client-dev libsqlite3-dev libpcre2-dev \
+    # 字体支持
+    fonts-wqy-zenhei fonts-wqy-microhei \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# 创建应用用户
+RUN groupadd -r openwrt && \
+    useradd -r -g openwrt -u 1000 -m -s /bin/bash openwrt
+
+# 复制requirements文件并安装Python依赖
+COPY requirements.txt /app/
+RUN python3 -m pip install --upgrade pip setuptools wheel && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
+
+# 创建目录结构
+RUN mkdir -p \
+    /app/backend \
+    /app/frontend \
+    /app/workspace/users \
+    /app/logs \
+    /app/data \
+    /app/config \
+    /app/tmp
+
+# 复制应用代码
+COPY backend/ /app/backend/
+COPY frontend/ /app/frontend/
+COPY config/ /app/config/
+
+# 创建修复编码的启动脚本
+RUN cat > /app/start-fixed.py << 'EOF'
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import locale
+import subprocess
+
+# 设置编码环境
+os.environ['LANG'] = 'zh_CN.UTF-8'
+os.environ['LC_ALL'] = 'zh_CN.UTF-8'
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
+# 设置Python默认编码
+if sys.version_info >= (3, 7):
+    # Python 3.7+ 默认使用UTF-8
+    pass
+else:
+    # 为旧版本Python设置编码
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer)
+
+# 设置locale
+try:
+    locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')
+except locale.Error:
+    try:
+        locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
+    except locale.Error:
+        print("Warning: Could not set locale")
+
+print("🚀 Starting OpenWrt Compiler with encoding fixes...")
+print(f"Locale: {locale.getlocale()}")
+print(f"Default encoding: {sys.getdefaultencoding()}")
+print(f"File system encoding: {sys.getfilesystemencoding()}")
+
+# 启动Flask应用
+if __name__ == '__main__':
+    # 切换到backend目录
+    os.chdir('/app/backend')
+    
+    # 启动应用
+    from app import app
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 5000)),
+        debug=False,
+        threaded=True
+    )
+EOF
+
+# 创建简单的Flask应用（如果不存在）
+RUN if [ ! -f /app/backend/app.py ]; then \
+    cat > /app/backend/app.py << 'EOF'
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
+import json
+from flask import Flask, render_template_string, jsonify, request
+from datetime import datetime
+
+app = Flask(__name__)
+app.config['JSON_AS_ASCII'] = False  # 支持中文JSON
+
+# 主页模板
+INDEX_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenWrt编译器</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255,255,255,0.1);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        h1 { text-align: center; margin-bottom: 30px; }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+        .feature-card {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .status-ok { color: #4CAF50; }
+        .status-warning { color: #FF9800; }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 5px;
+            border: 1px solid rgba(255,255,255,0.3);
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 OpenWrt固件编译器</h1>
+        
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>📱 设备支持</h3>
+                <p>支持主流路由器设备的固件编译</p>
+                <ul>
+                    <li>x86/x64 通用设备</li>
+                    <li>ARM 架构设备</li>
+                    <li>MIPS 路由器</li>
+                    <li>树莓派系列</li>
+                </ul>
+            </div>
+            
+            <div class="feature-card">
+                <h3>⚙️ 功能特性</h3>
+                <p>完整的编译和管理功能</p>
+                <ul>
+                    <li>Web版 menuconfig</li>
+                    <li>多用户支持</li>
+                    <li>实时编译日志</li>
+                    <li>自动iStore集成</li>
+                </ul>
+            </div>
+            
+            <div class="feature-card">
+                <h3>🔧 系统状态</h3>
+                <p>当前系统运行状态</p>
+                <div id="system-status">
+                    <p class="status-ok">✅ 服务运行正常</p>
+                    <p class="status-ok">✅ 编码配置正确</p>
+                    <p class="status-warning">⚠️ 等待用户配置</p>
+                </div>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px;">
+            <a href="/test-encoding" class="btn">🔧 编码测试</a>
+            <a href="/api/health" class="btn">💚 健康检查</a>
+            <a href="/api/status" class="btn">📊 系统状态</a>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px; font-size: 14px; opacity: 0.8;">
+            <p>当前时间: <span id="current-time"></span></p>
+            <p>访问地址: {{ request.url }}</p>
+        </div>
+    </div>
+
+    <script>
+        function updateTime() {
+            document.getElementById('current-time').textContent = new Date().toLocaleString('zh-CN');
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
+</body>
+</html>
+'''
+
+@app.route('/')
+def index():
+    return render_template_string(INDEX_TEMPLATE, request=request)
+
+@app.route('/test-encoding')
+def test_encoding():
+    return '''
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <title>编码测试</title>
+    </head>
+    <body>
+        <h1>中文编码测试</h1>
+        <p>如果您能看到这些中文字符，说明编码正常：</p>
+        <ul>
+            <li>测试字符：你好世界！</li>
+            <li>技术术语：路由器、固件、编译</li>
+            <li>特殊字符：①②③④⑤</li>
+        </ul>
+        <a href="/">返回主页</a>
+    </body>
+    </html>
+    '''
+
+@app.route('/api/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'message': '服务运行正常',
+        'timestamp': datetime.now().isoformat(),
+        'encoding': 'utf-8',
+        'locale': os.environ.get('LANG', 'unknown')
+    })
+
+@app.route('/api/status')
+def status():
+    return jsonify({
+        'service': 'OpenWrt Compiler',
+        'version': '2.0.0',
+        'status': '运行中',
+        'features': [
+            '多用户支持',
+            'Web版menuconfig',
+            '实时编译日志',
+            'iStore集成'
+        ],
+        'encoding': {
+            'lang': os.environ.get('LANG'),
+            'lc_all': os.environ.get('LC_ALL'),
+            'python_encoding': os.environ.get('PYTHONIOENCODING')
+        }
+    })
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+EOF
+fi
+
+# 设置权限
+RUN chmod +x /app/start-fixed.py && \
+    chown -R openwrt:openwrt /app && \
+    chmod 755 /app/workspace /app/logs /app/data && \
+    chmod 777 /app/tmp
+
+# 创建健康检查脚本
+RUN echo '#!/bin/bash\ncurl -f http://localhost:${PORT:-5000}/api/health || exit 1' > /healthcheck.sh && \
+    chmod +x /healthcheck.sh
+
+# 暴露端口
+EXPOSE $PORT
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD /healthcheck.sh
+
+# 数据卷
+VOLUME ["/app/workspace", "/app/logs", "/app/data"]
+
+# 切换到应用用户
+USER openwrt
+
+# 启动命令
+CMD ["python3", "/app/start-fixed.py"]

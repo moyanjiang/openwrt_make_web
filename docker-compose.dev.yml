@@ -1,0 +1,90 @@
+# 开发环境Docker Compose配置
+# 使用方法: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  # 后端开发配置
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile.dev
+      target: development
+    environment:
+      - FLASK_ENV=development
+      - FLASK_DEBUG=True
+      - PYTHONUNBUFFERED=1
+      - RELOAD=True
+    volumes:
+      # 开发时挂载源码，支持热重载
+      - ./backend:/app/backend
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+    ports:
+      - "5000:5000"
+      - "5678:5678"  # Python调试端口
+    command: python3 -m debugpy --listen 0.0.0.0:5678 --wait-for-client backend/app.py --host 0.0.0.0 --port 5000 --debug
+
+  # 前端开发配置
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile.dev
+    environment:
+      - NODE_ENV=development
+      - NGINX_PORT=9963
+    volumes:
+      # 开发时挂载前端源码
+      - ./frontend:/app/frontend
+    ports:
+      - "9963:9963"
+      - "3001:3001"  # 开发服务器端口
+    command: /app/start-dev.sh
+
+  # Redis开发配置
+  redis:
+    ports:
+      - "6379:6379"  # 暴露Redis端口用于调试
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  # 开发工具容器
+  dev-tools:
+    image: node:18-alpine
+    container_name: openwrt-compiler-dev-tools
+    working_dir: /app
+    volumes:
+      - ./frontend:/app/frontend
+      - ./tools:/app/tools
+    command: tail -f /dev/null
+    networks:
+      - openwrt-network
+
+  # 数据库管理工具（可选）
+  adminer:
+    image: adminer:latest
+    container_name: openwrt-compiler-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=redis
+    networks:
+      - openwrt-network
+
+  # 邮件测试服务（开发用）
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: openwrt-compiler-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP端口
+      - "8025:8025"  # Web界面端口
+    networks:
+      - openwrt-network
+
+# 开发环境特定配置
+x-dev-logging: &dev-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "2"

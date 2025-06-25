@@ -1,0 +1,57 @@
+# OpenWrt Compiler Backend Dependencies - 修复版
+# 确保编码和国际化支持
+
+# Web框架
+Flask>=3.0.0
+Flask-SocketIO>=5.3.0
+Flask-CORS>=4.0.0
+Werkzeug>=2.3.0
+
+# WebSocket支持
+python-socketio>=5.10.0
+eventlet>=0.33.0
+
+# HTTP和网络
+requests>=2.31.0
+urllib3>=2.0.0
+
+# Git操作
+gitpython>=3.1.0
+
+# 配置文件
+PyYAML>=6.0.0
+python-dotenv>=1.0.0
+
+# 系统工具
+psutil>=5.9.0
+watchdog>=3.0.0
+click>=8.1.0
+
+# 终端和颜色
+colorama>=0.4.0
+
+# 认证和安全
+PyJWT>=2.8.0
+bcrypt>=4.0.0
+
+# 编码检测和处理
+chardet>=5.0.0
+charset-normalizer>=3.0.0
+
+# 国际化支持
+babel>=2.12.0
+
+# Redis支持
+redis>=4.5.0
+
+# 邮件支持
+email-validator>=2.0.0
+
+# 日志处理
+colorlog>=6.7.0
+
+# 时间处理
+python-dateutil>=2.8.0
+
+# JSON处理
+simplejson>=3.19.0

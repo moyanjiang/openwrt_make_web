@@ -1,0 +1,54 @@
+# OpenWrt编译器生产环境依赖
+
+# WSGI服务器
+gunicorn==21.2.0
+eventlet==0.33.3
+
+# 性能监控
+psutil==5.9.5
+
+# 日志处理
+loguru==0.7.0
+
+# 缓存
+redis==4.6.0
+hiredis==2.2.3
+
+# 数据库 (可选)
+SQLAlchemy==2.0.19
+alembic==1.11.1
+
+# 安全
+cryptography==41.0.3
+bcrypt==4.0.1
+
+# 监控和健康检查
+prometheus-client==0.17.1
+
+# 错误追踪 (可选)
+sentry-sdk[flask]==1.29.2
+
+# 邮件通知 (可选)
+Flask-Mail==0.9.1
+
+# 任务队列 (可选)
+celery==5.3.1
+kombu==5.3.1
+
+# 配置管理
+python-dotenv==1.0.0
+
+# HTTP客户端
+httpx==0.24.1
+
+# 时间处理
+pytz==2023.3
+
+# 文件处理
+Pillow==10.0.0
+
+# 压缩
+zstandard==0.21.0
+
+# 系统信息
+distro==1.8.0

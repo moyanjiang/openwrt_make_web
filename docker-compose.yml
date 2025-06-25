@@ -1,0 +1,190 @@
+version: '3.8'
+
+services:
+  # OpenWrt编译器主服务
+  openwrt-compiler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    container_name: openwrt-compiler
+    hostname: openwrt-compiler
+    restart: unless-stopped
+
+    # 环境变量
+    environment:
+      - PORT=${PORT:-9963}
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+      - DOCKER_BUILDKIT=1
+      - COMPOSE_DOCKER_CLI_BUILD=1
+
+      # 邮箱配置（可选）
+      - MAIL_SERVER=${MAIL_SERVER:-}
+      - MAIL_PORT=${MAIL_PORT:-587}
+      - MAIL_USE_TLS=${MAIL_USE_TLS:-true}
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-}
+
+      # 编译配置
+      - DEFAULT_THREADS=${DEFAULT_THREADS:-$(nproc)}
+      - ENABLE_CCACHE=${ENABLE_CCACHE:-true}
+      - CCACHE_SIZE=${CCACHE_SIZE:-10G}
+      - ENABLE_ISTORE=${ENABLE_ISTORE:-true}
+
+    # 环境文件
+    env_file:
+      - .env
+
+    # 数据卷挂载
+    volumes:
+      # 工作空间持久化
+      - ./workspace:/app/workspace
+      # 日志持久化
+      - ./logs:/app/logs
+      # 数据目录
+      - ./data:/app/data
+      # 临时目录
+      - ./tmp:/app/tmp
+      # 配置文件
+      - ./.env:/app/.env:ro
+
+      # 缓存目录（提高编译效率）
+      - openwrt_cache:/app/cache
+      - openwrt_ccache:/app/ccache
+      - openwrt_downloads:/app/downloads
+
+      # Docker socket（用于容器内构建）
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    # 端口映射
+    ports:
+      - "${PORT:-9963}:8000"
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+    # 网络配置
+    networks:
+      - openwrt-network
+
+    # 依赖服务
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Redis缓存服务
+  redis:
+    image: redis:7-alpine
+    container_name: openwrt-redis
+    hostname: openwrt-redis
+    restart: unless-stopped
+
+    # 端口映射（仅本地访问）
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    # 数据卷
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+
+    # 启动命令
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+    networks:
+      - openwrt-network
+
+  # Nginx反向代理（可选，使用profile控制）
+  nginx:
+    image: nginx:alpine
+    container_name: openwrt-nginx
+    hostname: openwrt-nginx
+    restart: unless-stopped
+
+    # 端口映射
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_SSL_PORT:-443}:443"
+
+    # 配置文件和日志
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./logs/nginx:/var/log/nginx
+      - ./data/ssl:/etc/nginx/ssl:ro
+      - ./data/firmware:/usr/share/nginx/html/downloads:ro
+
+    # 依赖主服务
+    depends_on:
+      - openwrt-compiler
+
+    networks:
+      - openwrt-network
+
+    # 使用profile控制是否启动
+    profiles:
+      - nginx
+
+# 数据卷定义
+volumes:
+  # 编译缓存
+  openwrt_cache:
+    driver: local
+
+  # ccache缓存
+  openwrt_ccache:
+    driver: local
+
+  # 下载缓存
+  openwrt_downloads:
+    driver: local
+
+  # Redis数据
+  redis_data:
+    driver: local
+
+# 网络配置
+networks:
+  openwrt-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1

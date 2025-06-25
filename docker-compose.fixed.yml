@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # OpenWrt编译器主服务 - 修复版
+  openwrt-compiler-fixed:
+    build:
+      context: .
+      dockerfile: Dockerfile.fixed
+    container_name: openwrt-compiler-fixed
+    hostname: openwrt-compiler
+    restart: unless-stopped
+    
+    # 环境变量 - 重点解决编码问题
+    environment:
+      - PORT=5000
+      - LANG=zh_CN.UTF-8
+      - LC_ALL=zh_CN.UTF-8
+      - LC_CTYPE=zh_CN.UTF-8
+      - PYTHONIOENCODING=utf-8
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - TZ=Asia/Shanghai
+      
+      # Flask配置
+      - FLASK_ENV=production
+      - FLASK_APP=app.py
+      
+      # 编译配置
+      - DEFAULT_THREADS=4
+      - ENABLE_CCACHE=true
+      - ENABLE_ISTORE=true
+    
+    # 端口映射
+    ports:
+      - "5000:5000"
+      - "8000:8000"
+    
+    # 数据卷挂载
+    volumes:
+      - ./workspace:/app/workspace
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./tmp:/app/tmp
+    
+    # 网络配置
+    networks:
+      - openwrt-network
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Nginx代理服务 - 解决内网穿透问题
+  nginx-proxy-fixed:
+    image: nginx:alpine
+    container_name: openwrt-nginx-fixed
+    hostname: nginx-proxy
+    restart: unless-stopped
+    
+    # 端口映射
+    ports:
+      - "80:80"
+      - "443:443"
+    
+    # 配置文件和日志
+    volumes:
+      - ./config/nginx-fixed.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/var/log/nginx
+      - ./frontend:/usr/share/nginx/html:ro
+    
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+      - NGINX_HOST=openwrt.xdaidai.com
+      - NGINX_PORT=80
+    
+    # 依赖主服务
+    depends_on:
+      openwrt-compiler-fixed:
+        condition: service_healthy
+    
+    # 网络配置
+    networks:
+      - openwrt-network
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis缓存服务（可选）
+  redis-cache:
+    image: redis:7-alpine
+    container_name: openwrt-redis-fixed
+    hostname: redis-cache
+    restart: unless-stopped
+    
+    # 端口映射（仅内部访问）
+    ports:
+      - "127.0.0.1:6379:6379"
+    
+    # 配置和数据
+    volumes:
+      - redis_data:/data
+      - ./config/redis-fixed.conf:/usr/local/etc/redis/redis.conf:ro
+    
+    # 启动命令
+    command: redis-server /usr/local/etc/redis/redis.conf --appendonly yes
+    
+    # 环境变量
+    environment:
+      - TZ=Asia/Shanghai
+    
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    
+    # 网络配置
+    networks:
+      - openwrt-network
+    
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+
+# 数据卷定义
+volumes:
+  redis_data:
+    driver: local
+
+# 网络配置
+networks:
+  openwrt-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
