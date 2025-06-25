@@ -1,0 +1,9 @@
+{
+  "name": "test_config",
+  "template_id": "raspberry_pi",
+  "template_name": "树莓派配置",
+  "description": "适用于树莓派系列设备的OpenWrt配置",
+  "target": "bcm27xx/bcm2711",
+  "created_time": "2025-06-25T02:15:00.111726",
+  "modified_time": "2025-06-25T02:15:00.111726"
+}

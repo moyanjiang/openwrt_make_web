@@ -1,0 +1,54 @@
+# OpenWrt编译器前端开发环境Dockerfile
+FROM node:18-alpine as base
+
+# 设置环境变量
+ENV NODE_ENV=development
+
+# 安装系统依赖
+RUN apk add --no-cache \
+    python3 \
+    py3-pip \
+    curl \
+    bash \
+    git
+
+# 创建应用目录
+WORKDIR /app
+
+# 安装全局工具
+RUN npm install -g \
+    live-server \
+    http-server \
+    nodemon
+
+# 创建启动脚本
+RUN cat > /app/start-dev.sh << 'EOF'
+#!/bin/bash
+echo "🚀 启动OpenWrt编译器前端开发服务"
+echo "📍 前端端口: 9963"
+echo "🔄 热重载: 启用"
+echo "📁 服务目录: /app/frontend"
+
+cd /app/frontend
+
+# 启动开发服务器
+if command -v live-server >/dev/null 2>&1; then
+    echo "🌐 使用live-server启动..."
+    live-server --port=9963 --host=0.0.0.0 --no-browser --wait=200
+else
+    echo "🌐 使用http-server启动..."
+    http-server -p 9963 -a 0.0.0.0 --cors
+fi
+EOF
+
+RUN chmod +x /app/start-dev.sh
+
+# 暴露端口
+EXPOSE 9963 3001
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:9963/ || exit 1
+
+# 启动命令
+CMD ["/app/start-dev.sh"]
